@@ -7,6 +7,15 @@
       "dependencies": {},
       "hash": "5ac210a9a287428cb876ce9ea4ef14fe31e115b7"
     },
+    "com.github.homuler.mediapipe": {
+      "version": "file:/Users/mac/Downloads/com.github.homuler.mediapipe-0.16.3.tgz",
+      "depth": 0,
+      "source": "local-tarball",
+      "dependencies": {
+        "com.unity.ugui": "1.0.0",
+        "com.unity.test-framework": "1.0.0"
+      }
+    },
     "com.unity.ai.navigation": {
       "version": "2.0.11",
       "depth": 0,
@@ -200,7 +209,7 @@
     },
     "com.unity.ugui": {
       "version": "2.0.0",
-      "depth": 0,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {
         "com.unity.modules.ui": "1.0.0",
