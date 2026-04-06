@@ -5,15 +5,27 @@
 // https://opensource.org/licenses/MIT.
 
 using System.Collections;
+using Mediapipe.Unity.CoordinateSystem;
 using Mediapipe.Tasks.Vision.PoseLandmarker;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.XR.ARFoundation.Samples;
 
 namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 {
   public class PoseLandmarkerRunner : VisionTaskApiRunner<PoseLandmarker>
   {
     [SerializeField] private PoseLandmarkerResultAnnotationController _poseLandmarkerResultAnnotationController;
+    [SerializeField] private Transform _rightHandSwooshTarget; // Add a reference for the Trail Transform
+    [SerializeField] private Transform _leftHandSwooshTarget; // Add a reference for the Left Hand Trail Transform
+    [SerializeField, Min(0.01f)] private float _swooshDistanceFromCamera = 3f;
+
+    private Vector2 _normalizedRightHandPosition;
+    private bool _hasNormalizedRightHandPosition = false;
+    private Vector2 _normalizedLeftHandPosition;
+    private bool _hasNormalizedLeftHandPosition = false;
+    private RectTransform _annotationLayerRectTransform;
+    private Canvas _annotationCanvas;
 
     private Experimental.TextureFramePool _textureFramePool;
 
@@ -61,6 +73,8 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
       SetupAnnotationController(_poseLandmarkerResultAnnotationController, imageSource);
       _poseLandmarkerResultAnnotationController.InitScreen(imageSource.textureWidth, imageSource.textureHeight);
+      _annotationLayerRectTransform = _poseLandmarkerResultAnnotationController.GetComponent<RectTransform>();
+      _annotationCanvas = _annotationLayerRectTransform != null ? _annotationLayerRectTransform.GetComponentInParent<Canvas>() : null;
 
       var transformationOptions = imageSource.GetTransformationOptions();
       var flipHorizontally = transformationOptions.flipHorizontally;
@@ -161,8 +175,70 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
     private void OnPoseLandmarkDetectionOutput(PoseLandmarkerResult result, Image image, long timestamp)
     {
+      // Use poseLandmarks (normalized 2D coordinates) instead of poseWorldLandmarks
+      result.poseLandmarks?.ForEach(pose =>
+      {
+        int landmarkIndex = 0;
+        pose.landmarks.ForEach(landmark =>
+        {
+          if (landmarkIndex == 16)
+          {
+            _normalizedRightHandPosition = new Vector2(landmark.x, landmark.y);
+            _hasNormalizedRightHandPosition = true;
+          }
+          else if (landmarkIndex == 15) // Left Hand
+          {
+            _normalizedLeftHandPosition = new Vector2(landmark.x, landmark.y);
+            _hasNormalizedLeftHandPosition = true;
+          }
+          landmarkIndex++;
+        });
+      });
       _poseLandmarkerResultAnnotationController.DrawLater(result);
       DisposeAllMasks(result);
+    }
+
+    private void Update()
+    {
+      if (_annotationLayerRectTransform == null)
+      {
+        return;
+      }
+
+      var screenRect = _annotationLayerRectTransform.rect;
+      var rotationAngle = _poseLandmarkerResultAnnotationController.rotationAngle;
+      var isMirrored = _poseLandmarkerResultAnnotationController.isMirrored;
+      var mainCamera = Camera.main;
+      if (mainCamera == null)
+      {
+        return;
+      }
+
+      Camera uiCamera = null;
+      if (_annotationCanvas != null && _annotationCanvas.renderMode != RenderMode.ScreenSpaceOverlay)
+      {
+        uiCamera = _annotationCanvas.worldCamera != null ? _annotationCanvas.worldCamera : mainCamera;
+      }
+
+      if (_hasNormalizedRightHandPosition && _rightHandSwooshTarget != null)
+      {
+        var rightLocalPosition = ImageCoordinate.ImageNormalizedToPoint(screenRect, _normalizedRightHandPosition.x, _normalizedRightHandPosition.y, 0f, rotationAngle, isMirrored);
+        var rightAnnotationWorldPosition = _annotationLayerRectTransform.TransformPoint(rightLocalPosition);
+        var rightScreenPosition = RectTransformUtility.WorldToScreenPoint(uiCamera, rightAnnotationWorldPosition);
+        var rightWorldPosition = mainCamera.ScreenToWorldPoint(new Vector3(rightScreenPosition.x, rightScreenPosition.y, _swooshDistanceFromCamera));
+        // Smoothly interpolate the position for a better trail effect.
+        _rightHandSwooshTarget.position = Vector3.Lerp(_rightHandSwooshTarget.position, rightWorldPosition, Time.deltaTime * 15f);
+      }
+
+      if (_hasNormalizedLeftHandPosition && _leftHandSwooshTarget != null)
+      {
+        var leftLocalPosition = ImageCoordinate.ImageNormalizedToPoint(screenRect, _normalizedLeftHandPosition.x, _normalizedLeftHandPosition.y, 0f, rotationAngle, isMirrored);
+        var leftAnnotationWorldPosition = _annotationLayerRectTransform.TransformPoint(leftLocalPosition);
+        var leftScreenPosition = RectTransformUtility.WorldToScreenPoint(uiCamera, leftAnnotationWorldPosition);
+        var leftWorldPosition = mainCamera.ScreenToWorldPoint(new Vector3(leftScreenPosition.x, leftScreenPosition.y, _swooshDistanceFromCamera));
+        // Smoothly interpolate the position for a better trail effect.
+        _leftHandSwooshTarget.position = Vector3.Lerp(_leftHandSwooshTarget.position, leftWorldPosition, Time.deltaTime * 15f);
+      }
     }
 
     private void DisposeAllMasks(PoseLandmarkerResult result)
